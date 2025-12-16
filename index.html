@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Elora - AI Teaching Assistant</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header>
+      <img src="logo.png" alt="Elora Logo" class="logo" />
+      <h1>Elora</h1>
+      <p class="tagline">Your All-in-One AI Teaching Assistant</p>
+    </header>
+
+    <main>
+      <form id="lessonForm">
+        <label for="grade">Grade Level</label>
+        <select id="grade">
+          <option value="Primary 1">Primary 1</option>
+          <option value="Primary 2">Primary 2</option>
+          <option value="Primary 3">Primary 3</option>
+          <option value="Primary 4">Primary 4</option>
+          <option value="Primary 5">Primary 5</option>
+          <option value="Primary 6">Primary 6</option>
+        </select>
+
+        <label for="subject">Subject</label>
+        <select id="subject">
+          <option value="English">English</option>
+          <option value="Math">Math</option>
+          <option value="Science">Science</option>
+          <option value="Geography">Geography</option>
+        </select>
+
+        <label for="topic">Topic</label>
+        <input type="text" id="topic" placeholder="Enter topic (e.g. Fractions)" required />
+
+        <button type="submit">Generate Lesson</button>
+      </form>
+
+      <section id="outputSection">
+        <h2>Generated Lesson</h2>
+        <div id="output">Your results will appear here...</div>
+        <div class="actions">
+          <button id="download">Download</button>
+          <button id="exportSlides">Create Slides</button>
+          <button id="quiz">Generate Quiz</button>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <small>Elora © 2026 | Built by Haris to Empower Educators</small>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
