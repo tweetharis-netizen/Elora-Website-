@@ -1,1 +1,0 @@
-// JavaScript logic for lesson generation and Google Slides auth
