@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Elora – AI Lesson Assistant</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <nav>
+      <div class="nav-logo">
+        <img src="logo.png" alt="Elora Logo" class="logo" />
+        <span class="brand">Elora</span>
+      </div>
+      <ul class="nav-links">
+        <li><a href="index.html" class="active">Home</a></li>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="about.html">About</a></li>
+        <li><a href="signup.html">Sign Up</a></li>
+        <li><a href="login.html">Log In</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main>
+    <section class="intro">
+      <h1>Welcome to Elora</h1>
+      <p>Your AI-powered teaching assistant – create structured lessons in seconds!</p>
+    </section>
+
+    <section class="form-section">
+      <label for="grade">Select Grade Level</label>
+      <select id="grade">
+        <option value="Primary">Primary</option>
+        <option value="Secondary">Secondary</option>
+        <option value="Tertiary">Tertiary</option>
+      </select>
+
+      <label for="subject">Select Subject</label>
+      <select id="subject">
+        <option value="Science">Science</option>
+        <option value="Mathematics">Mathematics</option>
+        <option value="English">English</option>
+        <option value="History">History</option>
+        <option value="Geography">Geography</option>
+      </select>
+
+      <label for="topic">Enter Topic</label>
+      <input type="text" id="topic" placeholder="e.g. Photosynthesis" />
+
+      <button onclick="generateLesson()">Generate Lesson</button>
+    </section>
+
+    <section class="output-section">
+      <h2>Lesson Output</h2>
+      <div id="output">Your lesson will appear here.</div>
+    </section>
+  </main>
+
+  <footer>
+    <p>&copy; 2026 Elora. Built by Shaik.</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
