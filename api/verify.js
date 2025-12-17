@@ -1,32 +1,36 @@
-import jwt from 'jsonwebtoken';
-import { initializeApp, cert } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+const jwt = require("jsonwebtoken");
+const admin = require("firebase-admin");
 
-const firebaseApp = initializeApp({
-  credential: cert({
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-  }),
-});
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+    }),
+  });
+}
 
-const db = getFirestore(firebaseApp);
+const db = admin.firestore();
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   const { token } = req.query;
-  if (!token) return res.status(400).json({ error: 'Token required' });
+  if (!token) return res.status(400).json({ error: "Token required" });
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const userRef = db.collection('users').doc(decoded.email);
-    const doc = await userRef.get();
 
-    if (!doc.exists) {
-      await userRef.set({ email: decoded.email, role: 'student', createdAt: new Date() });
+    // create user if not exists
+    const userRef = db.collection("users").doc(decoded.email);
+    const snapshot = await userRef.get();
+    if (!snapshot.exists) {
+      await userRef.set({ email: decoded.email, createdAt: new Date() });
     }
 
-    res.status(200).json({ success: true, email: decoded.email });
+    return res.status(200).json({ success: true, email: decoded.email });
   } catch (err) {
-    res.status(401).json({ error: 'Invalid or expired token', details: err.message });
+    return res
+      .status(401)
+      .json({ error: "Invalid or expired token", details: err.message });
   }
-}
+};
