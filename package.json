@@ -1,3 +1,10 @@
 {
-  "type": "commonjs"
+  "name": "elora-website-backend",
+  "version": "1.0.0",
+  "type": "commonjs",
+  "dependencies": {
+    "firebase-admin": "^11.10.1",
+    "jsonwebtoken": "^9.0.0",
+    "resend": "^1.0.0"
+  }
 }
