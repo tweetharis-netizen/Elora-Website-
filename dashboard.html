@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Dashboard – Elora</title>
+</head>
+<body>
+  <h1>Welcome to Elora 👋</h1>
+  <p id="user-email">Checking login...</p>
+  <button onclick="logout()">Log Out</button>
+
+  <script>
+    const email = localStorage.getItem("email");
+
+    if (!email) {
+      window.location.href = "/";
+    } else {
+      document.getElementById("user-email").textContent = `You are logged in as ${email}`;
+    }
+
+    function logout() {
+      localStorage.removeItem("email");
+      window.location.href = "/";
+    }
+  </script>
+</body>
+</html>
