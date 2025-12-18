@@ -1,26 +1,7 @@
 const jwt = require("jsonwebtoken");
-const admin = require("firebase-admin");
-const nodemailer = require("nodemailer");
+const Resend = require("resend").Resend;
 
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-    }),
-  });
-}
-
-const db = admin.firestore();
-
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") {
@@ -33,24 +14,33 @@ module.exports = async function handler(req, res) {
   }
 
   try {
+    // Create JWT token
     const token = jwt.sign({ email }, process.env.JWT_SECRET, {
       expiresIn: "15m",
     });
 
-    const link = `${process.env.BASE_URL}/api/verify?token=${token}`;
+    // Build verification link (must use BASE_URL env)
+    const baseUrl = process.env.BASE_URL;
+    if (!baseUrl) {
+      throw new Error("BASE_URL environment variable is not set");
+    }
 
-    const mailOptions = {
-      from: `"Elora" <${process.env.EMAIL_USER}>`,
+    const magicLink = `${baseUrl}/api/verify?token=${token}`;
+
+    // Send magic link email via Resend
+    await resend.emails.send({
+      from: process.env.RESEND_SENDER_EMAIL,
       to: email,
-      subject: "Your Magic Login Link ✨",
-      html: `<p>Click <a href="${link}">here</a> to log in. This link expires in 15 minutes.</p>`,
-    };
-
-    await transporter.sendMail(mailOptions);
+      subject: "Elora Login — Click to Sign In",
+      html: `<p>Click <a href="${magicLink}">here</a> to log in to Elora.</p><p>This link expires in 15 minutes.</p>`,
+    });
 
     return res.status(200).json({ success: true, email });
   } catch (err) {
     console.error("Login error:", err);
-    return res.status(500).json({ error: "Login failed", details: err.message });
+    return res.status(500).json({
+      error: "Email send failed",
+      details: err.message,
+    });
   }
 };
