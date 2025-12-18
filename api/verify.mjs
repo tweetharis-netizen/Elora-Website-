@@ -1,5 +1,5 @@
-const jwt = require("jsonwebtoken");
-const admin = require("firebase-admin");
+import jwt from "jsonwebtoken";
+import admin from "firebase-admin";
 
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -13,9 +13,11 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   const { token } = req.query;
-  if (!token) return res.status(400).json({ error: "Token required" });
+  if (!token) {
+    return res.status(400).json({ error: "Token required" });
+  }
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
@@ -27,10 +29,12 @@ module.exports = async function handler(req, res) {
       await userRef.set({ email: decoded.email, createdAt: new Date() });
     }
 
-    return res.status(200).json({ success: true, email: decoded.email });
+    // ✅ Redirect to dashboard/homepage with email
+    const redirectUrl = `https://elora-website.vercel.app/home?email=${encodeURIComponent(decoded.email)}`;
+    return res.writeHead(302, { Location: redirectUrl }).end();
   } catch (err) {
     return res
       .status(401)
       .json({ error: "Invalid or expired token", details: err.message });
   }
-};
+}
