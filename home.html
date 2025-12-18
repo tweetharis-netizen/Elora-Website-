@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Welcome to Elora</title>
+</head>
+<body>
+  <h1>Welcome to Elora 🎉</h1>
+  <p id="greeting">Loading…</p>
+
+  <script>
+    // Get the email from the URL query
+    const params = new URLSearchParams(window.location.search);
+    const email = params.get("email");
+
+    if (email) {
+      document.getElementById("greeting").textContent =
+        "You’re logged in as: " + email;
+    } else {
+      document.getElementById("greeting").textContent =
+        "We couldn’t find your login info.";
+    }
+  </script>
+</body>
+</html>
