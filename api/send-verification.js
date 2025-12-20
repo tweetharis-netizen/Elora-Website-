@@ -2,7 +2,6 @@ import nodemailer from 'nodemailer';
 import { getAuth } from 'firebase-admin/auth';
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 
-// Initialize Firebase Admin (only once)
 if (!getApps().length) {
   initializeApp({
     credential: cert({
@@ -20,59 +19,40 @@ if (!getApps().length) {
   });
 }
 
-// Create Gmail transporter
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
-
 export default async function handler(req, res) {
   try {
     const { email } = req.query;
-
     if (!email) {
       return res.status(400).json({ error: 'Missing email' });
     }
 
-    // Generate Firebase verification link
     const link = await getAuth().generateEmailVerificationLink(email);
 
-    // Send email via Gmail
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+
     await transporter.sendMail({
       from: `"Elora" <${process.env.EMAIL_USER}>`,
       to: email,
       subject: 'Verify your email for Elora',
       html: `
-        <div style="font-family: Arial, sans-serif;">
+        <div style="font-family: sans-serif; line-height: 1.5">
           <h2>Welcome to Elora 👋</h2>
-          <p>Please verify your email by clicking the button below:</p>
-          <p>
-            <a href="${link}" style="
-              display: inline-block;
-              padding: 10px 16px;
-              background-color: #6c63ff;
-              color: #ffffff;
-              text-decoration: none;
-              border-radius: 6px;
-              font-weight: bold;
-            ">
-              Verify Email
-            </a>
-          </p>
-          <p>If you didn’t request this, you can safely ignore this email.</p>
+          <p>Click the button below to verify your email address:</p>
+          <p><a href="${link}" style="padding: 10px 15px; background: #6c63ff; color: white; text-decoration: none; border-radius: 5px;">Verify Email</a></p>
+          <p>If you didn’t request this, just ignore this message.</p>
         </div>
       `,
     });
 
-    return res.status(200).json({
-      success: true,
-      message: 'Verification email sent',
-    });
+    return res.status(200).json({ success: true, message: 'Email sent' });
   } catch (err) {
-    console.error('Error sending verification email:', err);
+    console.error('Error sending verification:', err);
     return res.status(500).json({ error: err.message });
   }
 }
