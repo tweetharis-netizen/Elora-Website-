@@ -1,10 +1,8 @@
-// 📁 api/send-verification.js
-
 import nodemailer from "nodemailer";
 import { getAuth } from "firebase-admin/auth";
 import { initializeApp, cert, getApps } from "firebase-admin/app";
 
-// Initialize Firebase Admin once
+// Initialize Firebase Admin only once
 if (!getApps().length) {
   initializeApp({
     credential: cert({
@@ -16,24 +14,32 @@ if (!getApps().length) {
       client_id: process.env.FIREBASE_CLIENT_ID,
       auth_uri: process.env.FIREBASE_AUTH_URI,
       token_uri: process.env.FIREBASE_TOKEN_URI,
-      auth_provider_x509_cert_url:
-        process.env.FIREBASE_AUTH_PROVIDER_CERT_URL,
+      auth_provider_x509_cert_url: process.env.FIREBASE_AUTH_PROVIDER_CERT_URL,
       client_x509_cert_url: process.env.FIREBASE_CLIENT_CERT_URL,
     }),
   });
 }
 
 export default async function handler(req, res) {
+  // ➤ Add CORS headers
+  res.setHeader("Access-Control-Allow-Origin", "*"); // Allow requests from anywhere
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  // Handle CORS preflight request (browser check)
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
   try {
-    // 1) Validate email
     const { email } = req.query;
-    if (!email || typeof email !== "string") {
-      return res.status(400).json({ error: "Missing or invalid email." });
+    if (!email) {
+      return res.status(400).json({ error: "Email is required." });
     }
 
     const auth = getAuth();
 
-    // 2) Try to get the user — or create them
+    // Create user if not exists
     let user;
     try {
       user = await auth.getUserByEmail(email);
@@ -45,10 +51,10 @@ export default async function handler(req, res) {
       }
     }
 
-    // 3) Generate verification link
-    const verificationLink = await auth.generateEmailVerificationLink(email);
+    // Generate verification link
+    const link = await auth.generateEmailVerificationLink(email);
 
-    // 4) Send email via Gmail
+    // Send the actual email
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: {
@@ -60,12 +66,12 @@ export default async function handler(req, res) {
     await transporter.sendMail({
       from: `"Elora" <${process.env.EMAIL_USER}>`,
       to: email,
-      subject: "Verify Your Elora Email",
+      subject: "Verify your Elora email",
       html: `
         <div style="font-family:Arial,sans-serif; text-align:center; padding:20px;">
-          <h2 style="color:#6c63ff;">Welcome to Elora 👋</h2>
-          <p>Click the button below to verify your email:</p>
-          <a href="${verificationLink}" style="
+          <h2 style="color:#6c63ff;">Welcome to Elora 🎉</h2>
+          <p>Click the button below to verify your email address:</p>
+          <a href="${link}" style="
             display:inline-block;
             padding:12px 20px;
             background:#6c63ff;
@@ -74,17 +80,16 @@ export default async function handler(req, res) {
             text-decoration:none;
             font-weight:bold;
           ">Verify Email</a>
-          <p style="margin-top:15px; font-size:12px; color:#555;">
-            If you didn’t request this email, you can ignore it.
+          <p style="font-size:12px; color:#555; margin-top:15px;">
+            If you didn’t request this, ignore this email.
           </p>
         </div>
       `,
     });
 
-    // 5) Success
     return res.status(200).json({ success: true });
   } catch (error) {
-    console.error("⚠️ send-verification error:", error);
+    console.error("send-verification error:", error);
     return res.status(500).json({ error: error.message });
   }
 }
