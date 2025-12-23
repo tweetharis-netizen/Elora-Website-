@@ -50,11 +50,11 @@ export default async function handler(req, res) {
       });
     }
 
-    // 🔑 THIS IS THE KEY LINE
-    // User is redirected here ONLY AFTER clicking the email link
+    // 🔑 Verification link with continue URL
     const verificationLink =
       await admin.auth().generateEmailVerificationLink(email, {
         url: "https://elora-verification-ui.vercel.app/success",
+        handleCodeInApp: false,
       });
 
     const transporter = nodemailer.createTransport({
@@ -88,9 +88,9 @@ export default async function handler(req, res) {
       message: "Verification email sent",
     });
   } catch (error) {
-    console.error("Verification error:", error);
-    return res
-      .status(500)
-      .json({ error: "Failed to send verification email" });
+    console.error("SEND VERIFICATION FAILED:", error);
+    return res.status(500).json({
+      error: "Failed to send verification email",
+    });
   }
 }
