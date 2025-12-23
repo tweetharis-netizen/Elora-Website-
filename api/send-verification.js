@@ -50,7 +50,8 @@ export default async function handler(req, res) {
       });
     }
 
-    // 🔑 Generate link with continue URL
+    // 🔑 THIS IS THE KEY LINE
+    // User is redirected here ONLY AFTER clicking the email link
     const verificationLink =
       await admin.auth().generateEmailVerificationLink(email, {
         url: "https://elora-verification-ui.vercel.app/success",
