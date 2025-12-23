@@ -16,12 +16,7 @@ if (!admin.apps.length) {
 function setCors(req, res) {
   const origin = req.headers.origin;
 
-  // Allow all Vercel preview + production for your UI
-  if (
-    origin &&
-    (origin.includes("elora-verification-ui.vercel.app") ||
-     origin.includes("vercel.app"))
-  ) {
+  if (origin && origin.includes("vercel.app")) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
 
@@ -32,7 +27,7 @@ function setCors(req, res) {
 export default async function handler(req, res) {
   setCors(req, res);
 
-  /* ---------- Handle Preflight ---------- */
+  /* ---------- Preflight ---------- */
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
@@ -48,9 +43,24 @@ export default async function handler(req, res) {
   }
 
   try {
+    let user;
+
+    // 1️⃣ Check if user exists
+    try {
+      user = await admin.auth().getUserByEmail(email);
+    } catch (err) {
+      // 2️⃣ If not, create user
+      user = await admin.auth().createUser({
+        email,
+        emailVerified: false,
+      });
+    }
+
+    // 3️⃣ Generate verification link
     const verificationLink =
       await admin.auth().generateEmailVerificationLink(email);
 
+    // 4️⃣ Send email
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: {
@@ -66,7 +76,7 @@ export default async function handler(req, res) {
       html: `
         <div style="font-family: Arial, sans-serif;">
           <h2>Welcome to Elora</h2>
-          <p>Please verify your email to continue.</p>
+          <p>You're one step away from using your AI teaching assistant.</p>
           <a href="${verificationLink}"
              style="display:inline-block;padding:12px 18px;
              background:#4f46e5;color:white;
@@ -79,7 +89,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ success: true });
   } catch (error) {
-    console.error("Verification error:", error);
+    console.error("Send verification failed:", error);
     return res
       .status(500)
       .json({ error: "Failed to send verification email" });
