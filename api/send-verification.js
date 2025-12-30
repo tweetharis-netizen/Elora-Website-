@@ -1,5 +1,3 @@
-const send = require("./verification/send");
-
-module.exports = async function handler(req, res) {
-  return send(req, res);
-};
+// Legacy endpoint kept for compatibility.
+// Prefer /api/verification/send
+module.exports = require("./verification/send");
