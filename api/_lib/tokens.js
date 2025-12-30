@@ -43,3 +43,44 @@ function verifyVerifyToken(token) {
     issuer: "elora-website",
     audience: "elora",
     clockTolerance: 120, // tolerate skew
+  });
+
+  if (payload?.typ !== "verify") throw new Error("Invalid token type.");
+  return payload; // { sub=email, jti, ... }
+}
+
+function signSessionToken({ email, ttlSeconds = 60 * 60 * 24 * 30 }) {
+  const secret = sessionSecret();
+  if (!secret) throw new Error("Missing ELORA_SESSION_JWT_SECRET (or JWT_SECRET).");
+
+  return jwt.sign(
+    { sub: email, verified: true, typ: "session" },
+    secret,
+    {
+      expiresIn: ttlSeconds,
+      issuer: "elora-website",
+      audience: "elora-verification-ui",
+    }
+  );
+}
+
+function verifySessionToken(token) {
+  const secret = sessionSecret();
+  if (!secret) throw new Error("Missing ELORA_SESSION_JWT_SECRET (or JWT_SECRET).");
+
+  const payload = jwt.verify(token, secret, {
+    issuer: "elora-website",
+    audience: "elora-verification-ui",
+    clockTolerance: 120,
+  });
+
+  if (payload?.typ !== "session") throw new Error("Invalid session token type.");
+  return payload; // { sub=email, verified:true }
+}
+
+module.exports = {
+  signVerifyToken,
+  verifyVerifyToken,
+  signSessionToken,
+  verifySessionToken,
+};
