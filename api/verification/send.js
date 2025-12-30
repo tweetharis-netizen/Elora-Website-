@@ -29,8 +29,8 @@ function getClientIp(req) {
 }
 
 /**
- * Basic abuse protection (serverless-friendly).
- * Not perfect across cold starts, but stops casual spam.
+ * Basic serverless-friendly throttling.
+ * Prevents casual spamming (not perfect across cold starts).
  */
 const mem = globalThis.__ELORA_RL__ || (globalThis.__ELORA_RL__ = new Map());
 function hit(key, windowMs) {
@@ -45,22 +45,21 @@ function makeTransport() {
   const user = process.env.EMAIL_SMTP_USER || process.env.EMAIL_USER;
   const pass = process.env.EMAIL_SMTP_PASS || process.env.EMAIL_PASS;
 
-  if (!user || !pass) throw new Error("SMTP auth missing (EMAIL_SMTP_USER/PASS or EMAIL_USER/PASS)");
+  if (!user || !pass) throw new Error("smtp_auth_missing");
 
-  // Option A: Gmail service mode
+  // Service mode (recommended for Gmail)
   if (process.env.EMAIL_SMTP_SERVICE) {
     return nodemailer.createTransport({
-      service: process.env.EMAIL_SMTP_SERVICE,
+      service: process.env.EMAIL_SMTP_SERVICE, // "gmail"
       auth: { user, pass },
     });
   }
 
-  // Option B: Host mode
+  // Host mode
   const host = process.env.EMAIL_SMTP_HOST;
   const port = Number(process.env.EMAIL_SMTP_PORT || 587);
   const secure = String(process.env.EMAIL_SMTP_SECURE || "false") === "true";
-
-  if (!host) throw new Error("SMTP host missing (set EMAIL_SMTP_HOST or EMAIL_SMTP_SERVICE)");
+  if (!host) throw new Error("smtp_host_missing");
 
   return nodemailer.createTransport({
     host,
@@ -71,29 +70,29 @@ function makeTransport() {
 }
 
 module.exports = async function handler(req, res) {
-  if (req.method !== "POST") return json(res, 405, { ok: false, error: "Method not allowed" });
+  if (req.method !== "POST") return json(res, 405, { ok: false, error: "method_not_allowed" });
 
-  const FRONTEND =
-    (process.env.ELORA_FRONTEND_URL || process.env.REDIRECT_URL || process.env.BASE_URL || "").replace(/\/$/, "");
-
+  const FRONTEND = String(process.env.ELORA_FRONTEND_URL || "").replace(/\/$/, "");
   const VERIFY_SECRET = process.env.ELORA_VERIFY_JWT_SECRET || process.env.JWT_SECRET;
 
-  if (!FRONTEND) return json(res, 500, { ok: false, error: "Missing ELORA_FRONTEND_URL" });
-  if (!VERIFY_SECRET) return json(res, 500, { ok: false, error: "Missing ELORA_VERIFY_JWT_SECRET (or JWT_SECRET)" });
+  if (!FRONTEND) return json(res, 500, { ok: false, error: "missing_ELORA_FRONTEND_URL" });
+  if (!VERIFY_SECRET) return json(res, 500, { ok: false, error: "missing_verify_secret" });
 
   let body;
   try {
     body = await readBody(req);
   } catch {
-    return json(res, 400, { ok: false, error: "Invalid JSON" });
+    return json(res, 400, { ok: false, error: "invalid_json" });
   }
 
   const email = String(body.email || "").trim().toLowerCase();
-  if (!/^\S+@\S+\.\S+$/.test(email)) return json(res, 400, { ok: false, error: "Invalid email" });
+  if (!/^\S+@\S+\.\S+$/.test(email)) return json(res, 400, { ok: false, error: "invalid_email" });
 
   const ip = getClientIp(req);
-  if (!hit(`ip:${ip}`, 60_000)) return json(res, 429, { ok: false, error: "Too many requests. Try again soon." });
-  if (!hit(`email:${email}`, 60_000)) return json(res, 429, { ok: false, error: "Recently sent. Try again soon." });
+
+  // Cooldowns (60s)
+  if (!hit(`ip:${ip}`, 60_000)) return json(res, 429, { ok: false, error: "rate_limited" });
+  if (!hit(`email:${email}`, 60_000)) return json(res, 429, { ok: false, error: "cooldown" });
 
   const token = jwt.sign(
     { purpose: "verify", email, jti: crypto.randomBytes(16).toString("hex") },
@@ -101,7 +100,7 @@ module.exports = async function handler(req, res) {
     { expiresIn: "30m" }
   );
 
-  // IMPORTANT: link hits FRONTEND confirm endpoint (frontend sets cookie on its own domain)
+  // IMPORTANT: Link goes to FRONTEND confirm route (cookie must be set on UI domain)
   const confirmUrl = `${FRONTEND}/api/verification/confirm?token=${encodeURIComponent(token)}`;
 
   try {
@@ -136,11 +135,6 @@ module.exports = async function handler(req, res) {
     return json(res, 200, { ok: true });
   } catch (e) {
     console.error("EMAIL SEND FAILED:", e?.message || e);
-    // Don’t leak secrets; return a useful code.
-    const msg = String(e?.message || "");
-    if (msg.includes("Invalid login")) return json(res, 500, { ok: false, error: "smtp_auth_failed" });
-    if (msg.includes("EAUTH")) return json(res, 500, { ok: false, error: "smtp_auth_failed" });
-    if (msg.includes("ECONNECTION")) return json(res, 500, { ok: false, error: "smtp_connection_failed" });
     return json(res, 500, { ok: false, error: "email_send_failed" });
   }
 };
