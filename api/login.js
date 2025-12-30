@@ -1,46 +1,33 @@
 const jwt = require("jsonwebtoken");
-const Resend = require("resend").Resend;
-
-const resend = new Resend(process.env.RESEND_API_KEY);
+const { sendMail } = require("./_lib/mail");
 
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { email } = req.body;
-  if (!email) {
-    return res.status(400).json({ error: "Email is required" });
-  }
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  if (!email) return res.status(400).json({ error: "Email is required" });
+
+  const secret = process.env.JWT_SECRET || process.env.ELORA_SESSION_JWT_SECRET || "";
+  if (!secret) return res.status(500).json({ error: "Missing JWT_SECRET or ELORA_SESSION_JWT_SECRET" });
+
+  const baseUrl = (process.env.BASE_URL || process.env.ELORA_BACKEND_URL || "https://elora-website.vercel.app").replace(/\/$/, "");
 
   try {
-    // Create JWT token
-    const token = jwt.sign({ email }, process.env.JWT_SECRET, {
-      expiresIn: "15m",
-    });
+    const token = jwt.sign({ email }, secret, { expiresIn: "15m" });
+    const magicLink = `${baseUrl}/api/verify?token=${encodeURIComponent(token)}`;
 
-    // Build verification link (must use BASE_URL env)
-    const baseUrl = process.env.BASE_URL;
-    if (!baseUrl) {
-      throw new Error("BASE_URL environment variable is not set");
-    }
-
-    const magicLink = `${baseUrl}/api/verify?token=${token}`;
-
-    // Send magic link email via Resend
-    await resend.emails.send({
-      from: process.env.RESEND_SENDER_EMAIL,
+    await sendMail({
       to: email,
       subject: "Elora Login — Click to Sign In",
+      text: `Click to sign in:\n\n${magicLink}\n\nThis link expires in 15 minutes.`,
       html: `<p>Click <a href="${magicLink}">here</a> to log in to Elora.</p><p>This link expires in 15 minutes.</p>`,
     });
 
     return res.status(200).json({ success: true, email });
   } catch (err) {
     console.error("Login error:", err);
-    return res.status(500).json({
-      error: "Email send failed",
-      details: err.message,
-    });
+    return res.status(500).json({ error: "Email send failed", details: err.message });
   }
 };
