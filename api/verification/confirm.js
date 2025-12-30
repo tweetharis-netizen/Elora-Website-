@@ -23,39 +23,36 @@ function readBody(req) {
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") return json(res, 405, { ok: false, error: "Method not allowed" });
 
-  const VERIFY_SECRET = process.env.ELORA_VERIFY_JWT_SECRET;
-  const SESSION_SECRET = process.env.ELORA_SESSION_JWT_SECRET;
+  const VERIFY_SECRET = process.env.ELORA_VERIFY_JWT_SECRET || process.env.JWT_SECRET;
+  const SESSION_SECRET = process.env.ELORA_SESSION_JWT_SECRET || process.env.SESSION_SECRET;
 
-  if (!VERIFY_SECRET) return json(res, 500, { ok: false, error: "Missing ELORA_VERIFY_JWT_SECRET" });
-  if (!SESSION_SECRET) return json(res, 500, { ok: false, error: "Missing ELORA_SESSION_JWT_SECRET" });
+  if (!VERIFY_SECRET) return json(res, 500, { ok: false, error: "Missing verify secret" });
+  if (!SESSION_SECRET) return json(res, 500, { ok: false, error: "Missing session secret" });
 
   let body;
   try {
     body = await readBody(req);
   } catch {
-    return json(res, 400, { ok: false, error: "Invalid JSON body" });
+    return json(res, 400, { ok: false, error: "Invalid JSON" });
   }
 
   const token = String(body.token || "");
   if (!token) return json(res, 400, { ok: false, error: "Missing token" });
 
-  let payload;
+  let p;
   try {
-    payload = jwt.verify(token, VERIFY_SECRET);
+    p = jwt.verify(token, VERIFY_SECRET);
   } catch (e) {
     const msg = e?.name === "TokenExpiredError" ? "expired" : "invalid";
     return json(res, 400, { ok: false, error: msg });
   }
 
-  if (payload?.purpose !== "verify" || !payload?.email) {
-    return json(res, 400, { ok: false, error: "invalid" });
-  }
+  if (p?.purpose !== "verify" || !p?.email) return json(res, 400, { ok: false, error: "invalid" });
 
-  const email = String(payload.email).toLowerCase();
+  const email = String(p.email).toLowerCase();
 
-  // Verified session JWT (frontend stores it as httpOnly cookie)
   const sessionJwt = jwt.sign(
-    { v: 1, email, purpose: "verified_session" },
+    { v: 1, purpose: "verified_session", email },
     SESSION_SECRET,
     { expiresIn: "30d" }
   );
