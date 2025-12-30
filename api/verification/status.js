@@ -1,28 +1,27 @@
-const { db } = require("../_lib/firebaseAdmin");
-const { verifySessionToken } = require("../_lib/tokens");
+const jwt = require("jsonwebtoken");
+
+function json(res, code, payload) {
+  res.statusCode = code;
+  res.setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify(payload));
+}
 
 module.exports = async function handler(req, res) {
-  if (req.method !== "GET") {
-    res.setHeader("Allow", "GET");
-    return res.status(405).json({ error: "Method not allowed" });
-  }
+  if (req.method !== "GET") return json(res, 405, { ok: false, error: "Method not allowed" });
+
+  const SESSION_SECRET = process.env.ELORA_SESSION_JWT_SECRET;
+  if (!SESSION_SECRET) return json(res, 500, { ok: false, error: "Missing ELORA_SESSION_JWT_SECRET" });
 
   const auth = String(req.headers.authorization || "");
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
 
-  if (!token) return res.status(200).json({ verified: false, email: "" });
+  if (!token) return json(res, 200, { ok: true, verified: false });
 
   try {
-    const payload = verifySessionToken(token);
-    const email = String(payload.sub || "").toLowerCase();
-    if (!email) return res.status(200).json({ verified: false, email: "" });
-
-    const firestore = db();
-    const snap = await firestore.collection("verified_emails").doc(email).get();
-    if (!snap.exists) return res.status(200).json({ verified: false, email: "" });
-
-    return res.status(200).json({ verified: true, email });
+    const p = jwt.verify(token, SESSION_SECRET);
+    const verified = p?.purpose === "verified_session" && p?.v === 1 && !!p?.email;
+    return json(res, 200, { ok: true, verified, email: verified ? p.email : null });
   } catch {
-    return res.status(200).json({ verified: false, email: "" });
+    return json(res, 200, { ok: true, verified: false });
   }
 };
