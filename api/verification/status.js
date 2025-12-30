@@ -9,8 +9,8 @@ function json(res, code, payload) {
 module.exports = async function handler(req, res) {
   if (req.method !== "GET") return json(res, 405, { ok: false, error: "Method not allowed" });
 
-  const SESSION_SECRET = process.env.ELORA_SESSION_JWT_SECRET;
-  if (!SESSION_SECRET) return json(res, 500, { ok: false, error: "Missing ELORA_SESSION_JWT_SECRET" });
+  const SESSION_SECRET = process.env.ELORA_SESSION_JWT_SECRET || process.env.SESSION_SECRET;
+  if (!SESSION_SECRET) return json(res, 500, { ok: false, error: "Missing session secret" });
 
   const auth = String(req.headers.authorization || "");
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
