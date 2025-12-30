@@ -21,23 +21,23 @@ function readBody(req) {
 }
 
 module.exports = async function handler(req, res) {
-  if (req.method !== "POST") return json(res, 405, { ok: false, error: "Method not allowed" });
+  if (req.method !== "POST") return json(res, 405, { ok: false, error: "method_not_allowed" });
 
   const VERIFY_SECRET = process.env.ELORA_VERIFY_JWT_SECRET || process.env.JWT_SECRET;
   const SESSION_SECRET = process.env.ELORA_SESSION_JWT_SECRET || process.env.SESSION_SECRET;
 
-  if (!VERIFY_SECRET) return json(res, 500, { ok: false, error: "Missing verify secret" });
-  if (!SESSION_SECRET) return json(res, 500, { ok: false, error: "Missing session secret" });
+  if (!VERIFY_SECRET) return json(res, 500, { ok: false, error: "missing_verify_secret" });
+  if (!SESSION_SECRET) return json(res, 500, { ok: false, error: "missing_session_secret" });
 
   let body;
   try {
     body = await readBody(req);
   } catch {
-    return json(res, 400, { ok: false, error: "Invalid JSON" });
+    return json(res, 400, { ok: false, error: "invalid_json" });
   }
 
   const token = String(body.token || "");
-  if (!token) return json(res, 400, { ok: false, error: "Missing token" });
+  if (!token) return json(res, 400, { ok: false, error: "missing_token" });
 
   let p;
   try {
@@ -51,6 +51,7 @@ module.exports = async function handler(req, res) {
 
   const email = String(p.email).toLowerCase();
 
+  // This is what the FRONTEND stores as an httpOnly cookie
   const sessionJwt = jwt.sign(
     { v: 1, purpose: "verified_session", email },
     SESSION_SECRET,
