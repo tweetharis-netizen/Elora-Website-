@@ -45,20 +45,20 @@ function keyDailyEmail(email) {
   return `elora:rl:verify_send:email_daily:${emailHash(email)}:${todayKey()}`;
 }
 
+async function ttlSeconds(key) {
+  const ttl = await kv.ttl(key);
+  return typeof ttl === "number" && ttl > 0 ? ttl : 0;
+}
+
 async function setNxEx(key, seconds) {
   const res = await kv.set(key, "1", { nx: true, ex: seconds });
   return res === "OK";
 }
 
-async function incrWithExpiry(key, ttlSeconds) {
+async function incrWithExpiry(key, ttl) {
   const n = await kv.incr(key);
-  if (n === 1) await kv.expire(key, ttlSeconds);
+  if (n === 1) await kv.expire(key, ttl);
   return n;
-}
-
-async function ttlSeconds(key) {
-  const ttl = await kv.ttl(key);
-  return typeof ttl === "number" && ttl > 0 ? ttl : 0;
 }
 
 async function enforceSendLimits({
@@ -77,14 +77,10 @@ async function enforceSendLimits({
   if (!okEmail) return { ok: false, error: "rate_limited", retryAfter: (await ttlSeconds(keyCooldownEmail(email))) || cooldownSeconds };
 
   const ipCount = await incrWithExpiry(keyDailyIp(ip), 60 * 60 * 24);
-  if (ipCount > dailyMaxPerIp) {
-    return { ok: false, error: "rate_limited", retryAfter: (await ttlSeconds(keyDailyIp(ip))) || 60 * 60 * 24 };
-  }
+  if (ipCount > dailyMaxPerIp) return { ok: false, error: "rate_limited", retryAfter: (await ttlSeconds(keyDailyIp(ip))) || 60 * 60 * 24 };
 
   const emailCount = await incrWithExpiry(keyDailyEmail(email), 60 * 60 * 24);
-  if (emailCount > dailyMaxPerEmail) {
-    return { ok: false, error: "rate_limited", retryAfter: (await ttlSeconds(keyDailyEmail(email))) || 60 * 60 * 24 };
-  }
+  if (emailCount > dailyMaxPerEmail) return { ok: false, error: "rate_limited", retryAfter: (await ttlSeconds(keyDailyEmail(email))) || 60 * 60 * 24 };
 
   return { ok: true };
 }
@@ -107,7 +103,6 @@ async function isJtiUsed(jti) {
 }
 
 async function markJtiUsed(jti, ttl = 60 * 60 * 24 * 2) {
-  // keep for 2 days so replay attempts are blocked even after expiry
   assertKvConfigured();
   await kv.set(keyUsedJti(jti), "1", { nx: true, ex: ttl });
 }
