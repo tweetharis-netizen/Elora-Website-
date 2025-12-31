@@ -1,6 +1,7 @@
-const crypto = require("crypto");
-const jwt = require("jsonwebtoken");
-const nodemailer = require("nodemailer");
+const { sendMail } = require("../_lib/mail");
+const { getClientIp } = require("../_lib/rateLimit"); // only for IP parsing (does not enforce)
+const { signVerifyToken } = require("../_lib/tokens");
+const { enforceSendLimits, normEmail } = require("../_lib/verificationStore");
 
 function json(res, code, payload) {
   res.statusCode = code;
@@ -22,61 +23,11 @@ function readBody(req) {
   });
 }
 
-function getClientIp(req) {
-  const xf = req.headers["x-forwarded-for"];
-  if (typeof xf === "string" && xf.length) return xf.split(",")[0].trim();
-  return req.socket?.remoteAddress || "unknown";
-}
-
-/**
- * Basic serverless-friendly throttling.
- * Prevents casual spamming (not perfect across cold starts).
- */
-const mem = globalThis.__ELORA_RL__ || (globalThis.__ELORA_RL__ = new Map());
-function hit(key, windowMs) {
-  const now = Date.now();
-  const last = mem.get(key) || 0;
-  if (now - last < windowMs) return false;
-  mem.set(key, now);
-  return true;
-}
-
-function makeTransport() {
-  const user = process.env.EMAIL_SMTP_USER || process.env.EMAIL_USER;
-  const pass = process.env.EMAIL_SMTP_PASS || process.env.EMAIL_PASS;
-
-  if (!user || !pass) throw new Error("smtp_auth_missing");
-
-  // Service mode (recommended for Gmail)
-  if (process.env.EMAIL_SMTP_SERVICE) {
-    return nodemailer.createTransport({
-      service: process.env.EMAIL_SMTP_SERVICE, // "gmail"
-      auth: { user, pass },
-    });
-  }
-
-  // Host mode
-  const host = process.env.EMAIL_SMTP_HOST;
-  const port = Number(process.env.EMAIL_SMTP_PORT || 587);
-  const secure = String(process.env.EMAIL_SMTP_SECURE || "false") === "true";
-  if (!host) throw new Error("smtp_host_missing");
-
-  return nodemailer.createTransport({
-    host,
-    port,
-    secure,
-    auth: { user, pass },
-  });
-}
-
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") return json(res, 405, { ok: false, error: "method_not_allowed" });
 
   const FRONTEND = String(process.env.ELORA_FRONTEND_URL || "").replace(/\/$/, "");
-  const VERIFY_SECRET = process.env.ELORA_VERIFY_JWT_SECRET || process.env.JWT_SECRET;
-
   if (!FRONTEND) return json(res, 500, { ok: false, error: "missing_ELORA_FRONTEND_URL" });
-  if (!VERIFY_SECRET) return json(res, 500, { ok: false, error: "missing_verify_secret" });
 
   let body;
   try {
@@ -85,48 +36,51 @@ module.exports = async function handler(req, res) {
     return json(res, 400, { ok: false, error: "invalid_json" });
   }
 
-  const email = String(body.email || "").trim().toLowerCase();
+  const email = normEmail(body.email);
   if (!/^\S+@\S+\.\S+$/.test(email)) return json(res, 400, { ok: false, error: "invalid_email" });
 
   const ip = getClientIp(req);
 
-  // Cooldowns (60s)
-  if (!hit(`ip:${ip}`, 60_000)) return json(res, 429, { ok: false, error: "rate_limited" });
-  if (!hit(`email:${email}`, 60_000)) return json(res, 429, { ok: false, error: "cooldown" });
+  // KV-enforced anti-abuse (cooldown + daily caps)
+  try {
+    const rl = await enforceSendLimits({ ip, email, cooldownSeconds: 60, dailyMaxPerIp: 25, dailyMaxPerEmail: 10 });
+    if (!rl.ok) return json(res, 429, { ok: false, error: rl.error, retryAfter: rl.retryAfter });
+  } catch (e) {
+    // KV misconfig should be obvious and hard-fail
+    return json(res, 500, { ok: false, error: e?.code === "kv_not_configured" ? "kv_not_configured" : "rate_limit_failed" });
+  }
 
-  const token = jwt.sign(
-    { purpose: "verify", email, jti: crypto.randomBytes(16).toString("hex") },
-    VERIFY_SECRET,
-    { expiresIn: "30m" }
-  );
+  let token;
+  try {
+    token = signVerifyToken({ email, ttlSeconds: 45 * 60 }).token;
+  } catch (e) {
+    return json(res, 500, { ok: false, error: e?.message || "token_sign_failed" });
+  }
 
-  // IMPORTANT: Link goes to FRONTEND confirm route (cookie must be set on UI domain)
-  const confirmUrl = `${FRONTEND}/api/verification/confirm?token=${encodeURIComponent(token)}`;
+  // Best link: land on /verify?token=... so frontend sets cookie on its own domain
+  const confirmUrl = `${FRONTEND}/verify?token=${encodeURIComponent(token)}`;
 
   try {
-    const transport = makeTransport();
-    const from = process.env.EMAIL_FROM || process.env.EMAIL_SMTP_USER || process.env.EMAIL_USER;
-
-    await transport.sendMail({
-      from: `"Elora" <${from}>`,
+    await sendMail({
       to: email,
       subject: "Elora — Verify your email",
+      text: `Verify your email: ${confirmUrl}\n\nThis link expires in 45 minutes.`,
       html: `
         <div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; line-height: 1.5;">
           <h2 style="margin:0 0 8px 0;">Verify your email</h2>
           <p style="margin:0 0 16px 0;color:#334155;">
-            Click the button below to unlock exports (DOCX / PDF / PPTX).
+            Click below to unlock DOCX / PDF / PPTX exports.
           </p>
           <p style="margin:0 0 18px 0;">
             <a href="${confirmUrl}"
                style="display:inline-block;padding:12px 16px;border-radius:999px;
-                      background:linear-gradient(135deg,#7c7bff,#59c2ff);
+                      background:linear-gradient(135deg,#4f46e5,#0ea5e9);
                       color:white;text-decoration:none;font-weight:800;">
               Verify email
             </a>
           </p>
           <p style="margin:0;color:#64748b;font-size:13px;">
-            This link expires in 30 minutes. If you didn’t request this, ignore it.
+            This link expires in 45 minutes. If you didn’t request this, ignore it.
           </p>
         </div>
       `,
