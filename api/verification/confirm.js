@@ -1,4 +1,5 @@
-const jwt = require("jsonwebtoken");
+const { verifyVerifyToken, signSessionToken } = require("../_lib/tokens");
+const { isJtiUsed, markJtiUsed, markEmailVerified } = require("../_lib/verificationStore");
 
 function json(res, code, payload) {
   res.statusCode = code;
@@ -23,12 +24,6 @@ function readBody(req) {
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") return json(res, 405, { ok: false, error: "method_not_allowed" });
 
-  const VERIFY_SECRET = process.env.ELORA_VERIFY_JWT_SECRET || process.env.JWT_SECRET;
-  const SESSION_SECRET = process.env.ELORA_SESSION_JWT_SECRET || process.env.SESSION_SECRET;
-
-  if (!VERIFY_SECRET) return json(res, 500, { ok: false, error: "missing_verify_secret" });
-  if (!SESSION_SECRET) return json(res, 500, { ok: false, error: "missing_session_secret" });
-
   let body;
   try {
     body = await readBody(req);
@@ -39,24 +34,30 @@ module.exports = async function handler(req, res) {
   const token = String(body.token || "");
   if (!token) return json(res, 400, { ok: false, error: "missing_token" });
 
-  let p;
+  let email, jti;
   try {
-    p = jwt.verify(token, VERIFY_SECRET);
+    const v = verifyVerifyToken(token);
+    email = v.email;
+    jti = v.jti;
   } catch (e) {
     const msg = e?.name === "TokenExpiredError" ? "expired" : "invalid";
     return json(res, 400, { ok: false, error: msg });
   }
 
-  if (p?.purpose !== "verify" || !p?.email) return json(res, 400, { ok: false, error: "invalid" });
+  try {
+    if (await isJtiUsed(jti)) return json(res, 400, { ok: false, error: "used" });
+    await markJtiUsed(jti);
+    await markEmailVerified(email);
+  } catch (e) {
+    return json(res, 500, { ok: false, error: e?.code === "kv_not_configured" ? "kv_not_configured" : "persist_failed" });
+  }
 
-  const email = String(p.email).toLowerCase();
+  let sessionToken;
+  try {
+    sessionToken = signSessionToken({ email });
+  } catch (e) {
+    return json(res, 500, { ok: false, error: e?.message || "session_sign_failed" });
+  }
 
-  // This is what the FRONTEND stores as an httpOnly cookie
-  const sessionJwt = jwt.sign(
-    { v: 1, purpose: "verified_session", email },
-    SESSION_SECRET,
-    { expiresIn: "30d" }
-  );
-
-  return json(res, 200, { ok: true, email, sessionJwt });
+  return json(res, 200, { ok: true, email, sessionToken });
 };
