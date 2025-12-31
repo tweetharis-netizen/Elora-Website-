@@ -9,8 +9,12 @@ function todayKey() {
   return `${y}${m}${day}`;
 }
 
+function normEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
 function emailHash(email) {
-  return sha256(String(email || "").trim().toLowerCase());
+  return sha256(normEmail(email));
 }
 
 function ipHash(ip) {
@@ -18,7 +22,7 @@ function ipHash(ip) {
 }
 
 function keyVerifiedEmail(email) {
-  return `elora:verify:email:${emailHash(email)}`;
+  return `elora:verified:email:${emailHash(email)}`;
 }
 
 function keyUsedJti(jti) {
@@ -52,7 +56,7 @@ async function incrWithExpiry(key, ttlSeconds) {
   return n;
 }
 
-async function getTtl(key) {
+async function ttlSeconds(key) {
   const ttl = await kv.ttl(key);
   return typeof ttl === "number" && ttl > 0 ? ttl : 0;
 }
@@ -62,24 +66,24 @@ async function enforceSendLimits({
   email,
   cooldownSeconds = 60,
   dailyMaxPerIp = 25,
-  dailyMaxPerEmail = 10
+  dailyMaxPerEmail = 10,
 }) {
   assertKvConfigured();
 
   const okIp = await setNxEx(keyCooldownIp(ip), cooldownSeconds);
-  if (!okIp) return { ok: false, error: "rate_limited", retryAfter: await getTtl(keyCooldownIp(ip)) || cooldownSeconds };
+  if (!okIp) return { ok: false, error: "rate_limited", retryAfter: (await ttlSeconds(keyCooldownIp(ip))) || cooldownSeconds };
 
   const okEmail = await setNxEx(keyCooldownEmail(email), cooldownSeconds);
-  if (!okEmail) return { ok: false, error: "rate_limited", retryAfter: await getTtl(keyCooldownEmail(email)) || cooldownSeconds };
+  if (!okEmail) return { ok: false, error: "rate_limited", retryAfter: (await ttlSeconds(keyCooldownEmail(email))) || cooldownSeconds };
 
   const ipCount = await incrWithExpiry(keyDailyIp(ip), 60 * 60 * 24);
   if (ipCount > dailyMaxPerIp) {
-    return { ok: false, error: "rate_limited", retryAfter: await getTtl(keyDailyIp(ip)) || 60 * 60 * 24 };
+    return { ok: false, error: "rate_limited", retryAfter: (await ttlSeconds(keyDailyIp(ip))) || 60 * 60 * 24 };
   }
 
   const emailCount = await incrWithExpiry(keyDailyEmail(email), 60 * 60 * 24);
   if (emailCount > dailyMaxPerEmail) {
-    return { ok: false, error: "rate_limited", retryAfter: await getTtl(keyDailyEmail(email)) || 60 * 60 * 24 };
+    return { ok: false, error: "rate_limited", retryAfter: (await ttlSeconds(keyDailyEmail(email))) || 60 * 60 * 24 };
   }
 
   return { ok: true };
@@ -102,12 +106,14 @@ async function isJtiUsed(jti) {
   return v === "1" || v === 1 || v === true;
 }
 
-async function markJtiUsed(jti, ttlSeconds = 60 * 60 * 24 * 2) {
+async function markJtiUsed(jti, ttl = 60 * 60 * 24 * 2) {
+  // keep for 2 days so replay attempts are blocked even after expiry
   assertKvConfigured();
-  await kv.set(keyUsedJti(jti), "1", { nx: true, ex: ttlSeconds });
+  await kv.set(keyUsedJti(jti), "1", { nx: true, ex: ttl });
 }
 
 module.exports = {
+  normEmail,
   enforceSendLimits,
   markEmailVerified,
   isEmailVerified,
