@@ -25,8 +25,7 @@ module.exports = async function handler(req, res) {
   try {
     const verified = await isEmailVerified(email);
     return json(res, 200, { ok: true, verified, email: verified ? email : null });
-  } catch (e) {
-    // If KV is down/misconfigured, fail closed
+  } catch {
     return json(res, 200, { ok: true, verified: false });
   }
 };
