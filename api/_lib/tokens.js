@@ -13,18 +13,21 @@ function verifySecret() {
 function sessionSecret() {
   return (
     process.env.ELORA_SESSION_JWT_SECRET ||
+    process.env.SESSION_SECRET ||
     process.env.JWT_SECRET ||
     ""
   );
 }
 
-function signVerifyToken({ email, ttlSeconds = 15 * 60 }) {
+function signVerifyToken({ email, ttlSeconds = 45 * 60 }) {
   const secret = verifySecret();
-  if (!secret) throw new Error("Missing ELORA_VERIFY_JWT_SECRET.");
+  if (!secret) throw new Error("missing_verify_secret");
 
+  const e = String(email || "").trim().toLowerCase();
   const jti = randomId(16);
+
   const token = jwt.sign(
-    { sub: email, jti, typ: "verify" },
+    { purpose: "verify", typ: "verify", email: e, sub: e, jti },
     secret,
     {
       expiresIn: ttlSeconds,
@@ -32,29 +35,46 @@ function signVerifyToken({ email, ttlSeconds = 15 * 60 }) {
       audience: "elora",
     }
   );
+
   return { token, jti, ttlSeconds };
 }
 
 function verifyVerifyToken(token) {
   const secret = verifySecret();
-  if (!secret) throw new Error("Missing ELORA_VERIFY_JWT_SECRET.");
+  if (!secret) throw new Error("missing_verify_secret");
 
   const payload = jwt.verify(token, secret, {
     issuer: "elora-website",
     audience: "elora",
-    clockTolerance: 120, // tolerate skew
+    clockTolerance: 120,
   });
 
-  if (payload?.typ !== "verify") throw new Error("Invalid token type.");
-  return payload; // { sub=email, jti, ... }
+  const email = String(payload?.email || payload?.sub || "").trim().toLowerCase();
+  const jti = String(payload?.jti || "").trim();
+  const ok =
+    (payload?.typ === "verify" || payload?.purpose === "verify") &&
+    email &&
+    jti;
+
+  if (!ok) throw new Error("invalid");
+  return { email, jti, payload };
 }
 
 function signSessionToken({ email, ttlSeconds = 60 * 60 * 24 * 30 }) {
   const secret = sessionSecret();
-  if (!secret) throw new Error("Missing ELORA_SESSION_JWT_SECRET (or JWT_SECRET).");
+  if (!secret) throw new Error("missing_session_secret");
+
+  const e = String(email || "").trim().toLowerCase();
 
   return jwt.sign(
-    { sub: email, verified: true, typ: "session" },
+    {
+      typ: "session",
+      purpose: "verified_session",
+      v: 1,
+      verified: true,
+      email: e,
+      sub: e,
+    },
     secret,
     {
       expiresIn: ttlSeconds,
@@ -66,7 +86,7 @@ function signSessionToken({ email, ttlSeconds = 60 * 60 * 24 * 30 }) {
 
 function verifySessionToken(token) {
   const secret = sessionSecret();
-  if (!secret) throw new Error("Missing ELORA_SESSION_JWT_SECRET (or JWT_SECRET).");
+  if (!secret) throw new Error("missing_session_secret");
 
   const payload = jwt.verify(token, secret, {
     issuer: "elora-website",
@@ -74,8 +94,18 @@ function verifySessionToken(token) {
     clockTolerance: 120,
   });
 
-  if (payload?.typ !== "session") throw new Error("Invalid session token type.");
-  return payload; // { sub=email, verified:true }
+  const email = String(payload?.email || payload?.sub || "").trim().toLowerCase();
+
+  // Accept both shapes, but require email
+  const ok =
+    !!email &&
+    (
+      (payload?.typ === "session" && payload?.verified === true) ||
+      (payload?.purpose === "verified_session" && payload?.v === 1)
+    );
+
+  if (!ok) throw new Error("invalid");
+  return { email, payload };
 }
 
 module.exports = {
