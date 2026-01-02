@@ -57,8 +57,8 @@ module.exports = async function handler(req, res) {
     return json(res, 500, { ok: false, error: e?.message || "token_sign_failed" });
   }
 
-  // Best link: land on /verify?token=... so frontend sets cookie on its own domain
-  const confirmUrl = `${FRONTEND}/verify?token=${encodeURIComponent(token)}`;
+  // Confirm lands on the FRONTEND API route which sets httpOnly cookie on the UI domain.
+  const confirmUrl = `${FRONTEND}/api/verification/confirm?token=${encodeURIComponent(token)}`;
 
   try {
     await sendMail({
