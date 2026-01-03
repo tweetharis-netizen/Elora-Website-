@@ -1,5 +1,5 @@
 const { sendMail } = require("../_lib/mail");
-const { getClientIp } = require("../_lib/rateLimit"); // only for IP parsing (does not enforce)
+const { getClientIp } = require("../_lib/rateLimit"); // only for IP parsing
 const { signVerifyToken } = require("../_lib/tokens");
 const { enforceSendLimits, normEmail } = require("../_lib/verificationStore");
 
@@ -41,13 +41,21 @@ module.exports = async function handler(req, res) {
 
   const ip = getClientIp(req);
 
-  // KV-enforced anti-abuse (cooldown + daily caps)
+  // KV-backed anti-abuse: cooldown + daily caps
   try {
-    const rl = await enforceSendLimits({ ip, email, cooldownSeconds: 60, dailyMaxPerIp: 25, dailyMaxPerEmail: 10 });
+    const rl = await enforceSendLimits({
+      ip,
+      email,
+      cooldownSeconds: 60,
+      dailyMaxPerIp: 25,
+      dailyMaxPerEmail: 10,
+    });
     if (!rl.ok) return json(res, 429, { ok: false, error: rl.error, retryAfter: rl.retryAfter });
   } catch (e) {
-    // KV misconfig should be obvious and hard-fail
-    return json(res, 500, { ok: false, error: e?.code === "kv_not_configured" ? "kv_not_configured" : "rate_limit_failed" });
+    return json(res, 500, {
+      ok: false,
+      error: e?.code === "kv_not_configured" ? "kv_not_configured" : "rate_limit_failed",
+    });
   }
 
   let token;
@@ -69,7 +77,7 @@ module.exports = async function handler(req, res) {
         <div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; line-height: 1.5;">
           <h2 style="margin:0 0 8px 0;">Verify your email</h2>
           <p style="margin:0 0 16px 0;color:#334155;">
-            Click below to unlock DOCX / PDF / PPTX exports.
+            Click below to unlock exports and teacher tools.
           </p>
           <p style="margin:0 0 18px 0;">
             <a href="${confirmUrl}"
