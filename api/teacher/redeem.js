@@ -77,13 +77,9 @@ module.exports = async function handler(req, res) {
   }
 
   const allowList = parseInviteCodes(process.env.TEACHER_INVITE_CODES || process.env.ELORA_TEACHER_INVITE_CODES);
-  if (!allowList.length) {
-    return json(res, 500, { ok: false, error: "teacher_invites_not_configured" });
-  }
+  if (!allowList.length) return json(res, 500, { ok: false, error: "teacher_invites_not_configured" });
 
-  if (!allowList.includes(code)) {
-    return json(res, 401, { ok: false, error: "invalid_code" });
-  }
+  if (!allowList.includes(code)) return json(res, 401, { ok: false, error: "invalid_code" });
 
   try {
     await setRole(email, "teacher");
