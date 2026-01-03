@@ -32,7 +32,6 @@ module.exports = async function handler(req, res) {
     try {
       role = await getRole(email);
     } catch {
-      // If role store is missing, default to regular.
       role = "regular";
     }
 
