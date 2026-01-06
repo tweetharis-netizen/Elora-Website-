@@ -1,62 +1,95 @@
 const { verifyVerifyToken, signSessionToken } = require("../_lib/tokens");
 const { isJtiUsed, markJtiUsed, markEmailVerified } = require("../_lib/verificationStore");
+const { json, readJson, applyCors, readQuery, setSessionCookie, frontendUrl, redirect } = require("../_lib/http");
 
-function json(res, code, payload) {
-  res.statusCode = code;
-  res.setHeader("Content-Type", "application/json");
-  res.end(JSON.stringify(payload));
-}
-
-function readBody(req) {
-  return new Promise((resolve, reject) => {
-    let data = "";
-    req.on("data", (c) => (data += c));
-    req.on("end", () => {
-      try {
-        resolve(data ? JSON.parse(data) : {});
-      } catch (e) {
-        reject(e);
-      }
-    });
-  });
-}
+// /api/verification/confirm
+// - GET: used by email link, sets httpOnly session cookie on THIS backend domain, then redirects to frontend.
+// - POST: used by programmatic flows; also sets cookie and returns JSON (kept for backward compatibility).
 
 module.exports = async function handler(req, res) {
-  if (req.method !== "POST") return json(res, 405, { ok: false, error: "method_not_allowed" });
+  // CORS matters only for fetch; safe for top-level GET navigations too.
+  if (applyCors(req, res)) return;
 
-  let body;
-  try {
-    body = await readBody(req);
-  } catch {
-    return json(res, 400, { ok: false, error: "invalid_json" });
+  const method = String(req.method || "GET").toUpperCase();
+  if (method !== "GET" && method !== "POST") {
+    res.setHeader("Allow", "GET, POST, OPTIONS");
+    return json(res, 405, { ok: false, error: "method_not_allowed" });
   }
 
-  const token = String(body.token || "");
-  if (!token) return json(res, 400, { ok: false, error: "missing_token" });
+  let token = "";
+  if (method === "GET") {
+    token = String(readQuery(req).get("token") || "");
+  } else {
+    try {
+      const body = await readJson(req);
+      token = String(body?.token || body?.code || "");
+    } catch (e) {
+      return json(res, 400, { ok: false, error: "invalid_json" });
+    }
+  }
 
-  let email, jti;
+  if (!token) {
+    if (method === "GET") {
+      const FRONTEND = frontendUrl();
+      return redirect(res, FRONTEND ? `${FRONTEND}/verify?error=missing_token` : "/");
+    }
+    return json(res, 400, { ok: false, error: "missing_token" });
+  }
+
+  let email = "";
+  let jti = "";
   try {
     const v = verifyVerifyToken(token);
     email = v.email;
     jti = v.jti;
   } catch (e) {
     const msg = e?.name === "TokenExpiredError" ? "expired" : "invalid";
+    if (method === "GET") {
+      const FRONTEND = frontendUrl();
+      return redirect(res, FRONTEND ? `${FRONTEND}/verify?error=${encodeURIComponent(msg)}` : "/");
+    }
     return json(res, 400, { ok: false, error: msg });
   }
 
   try {
-    if (await isJtiUsed(jti)) return json(res, 400, { ok: false, error: "used" });
+    if (await isJtiUsed(jti)) {
+      if (method === "GET") {
+        const FRONTEND = frontendUrl();
+        return redirect(res, FRONTEND ? `${FRONTEND}/verify?error=used` : "/");
+      }
+      return json(res, 400, { ok: false, error: "used" });
+    }
+
     await markJtiUsed(jti);
     await markEmailVerified(email);
   } catch (e) {
-    return json(res, 500, { ok: false, error: e?.code === "kv_not_configured" ? "kv_not_configured" : "persist_failed" });
+    const err = e?.code === "kv_not_configured" ? "kv_not_configured" : "persist_failed";
+    if (method === "GET") {
+      const FRONTEND = frontendUrl();
+      return redirect(res, FRONTEND ? `${FRONTEND}/verify?error=${encodeURIComponent(err)}` : "/");
+    }
+    return json(res, 500, { ok: false, error: err });
   }
 
-  let sessionToken;
+  let sessionToken = "";
   try {
     sessionToken = signSessionToken({ email });
   } catch (e) {
-    return json(res, 500, { ok: false, error: e?.message || "session_sign_failed" });
+    const err = e?.message || "session_sign_failed";
+    if (method === "GET") {
+      const FRONTEND = frontendUrl();
+      return redirect(res, FRONTEND ? `${FRONTEND}/verify?error=${encodeURIComponent(err)}` : "/");
+    }
+    return json(res, 500, { ok: false, error: err });
+  }
+
+  // Cookie is the authoritative session; keep sessionToken in JSON for legacy clients.
+  setSessionCookie(req, res, sessionToken);
+
+  if (method === "GET") {
+    const FRONTEND = frontendUrl();
+    // Frontend already has /verified; it also triggers a status refresh.
+    return redirect(res, FRONTEND ? `${FRONTEND}/verified` : "/");
   }
 
   return json(res, 200, { ok: true, email, sessionToken });
