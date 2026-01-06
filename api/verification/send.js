@@ -2,36 +2,22 @@ const { sendMail } = require("../_lib/mail");
 const { getClientIp } = require("../_lib/rateLimit"); // only for IP parsing
 const { signVerifyToken } = require("../_lib/tokens");
 const { enforceSendLimits, normEmail } = require("../_lib/verificationStore");
-
-function json(res, code, payload) {
-  res.statusCode = code;
-  res.setHeader("Content-Type", "application/json");
-  res.end(JSON.stringify(payload));
-}
-
-function readBody(req) {
-  return new Promise((resolve, reject) => {
-    let data = "";
-    req.on("data", (c) => (data += c));
-    req.on("end", () => {
-      try {
-        resolve(data ? JSON.parse(data) : {});
-      } catch (e) {
-        reject(e);
-      }
-    });
-  });
-}
+const { json, readJson, applyCors, frontendUrl, getBaseUrl } = require("../_lib/http");
 
 module.exports = async function handler(req, res) {
-  if (req.method !== "POST") return json(res, 405, { ok: false, error: "method_not_allowed" });
+  if (applyCors(req, res)) return;
 
-  const FRONTEND = String(process.env.ELORA_FRONTEND_URL || "").replace(/\/$/, "");
+  if (req.method !== "POST") {
+    res.setHeader("Allow", "POST, OPTIONS");
+    return json(res, 405, { ok: false, error: "method_not_allowed" });
+  }
+
+  const FRONTEND = frontendUrl();
   if (!FRONTEND) return json(res, 500, { ok: false, error: "missing_ELORA_FRONTEND_URL" });
 
   let body;
   try {
-    body = await readBody(req);
+    body = await readJson(req);
   } catch {
     return json(res, 400, { ok: false, error: "invalid_json" });
   }
@@ -65,8 +51,12 @@ module.exports = async function handler(req, res) {
     return json(res, 500, { ok: false, error: e?.message || "token_sign_failed" });
   }
 
-  // Confirm lands on the FRONTEND API route which sets httpOnly cookie on the UI domain.
-  const confirmUrl = `${FRONTEND}/api/verification/confirm?token=${encodeURIComponent(token)}`;
+  // Preferred: confirmation happens on the BACKEND so it can set the session cookie, then redirect to frontend.
+  const SELF = getBaseUrl(req);
+  const confirmUrl =
+    SELF
+      ? `${SELF}/api/verification/confirm?token=${encodeURIComponent(token)}`
+      : `${FRONTEND}/api/verification/confirm?token=${encodeURIComponent(token)}`;
 
   try {
     await sendMail({
