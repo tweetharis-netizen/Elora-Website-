@@ -1,20 +1,24 @@
 const { verifySessionToken } = require("../_lib/tokens");
 const { isEmailVerified } = require("../_lib/verificationStore");
 const { getRole } = require("../_lib/roleStore");
+const { json, applyCors, parseCookies, SESSION_COOKIE } = require("../_lib/http");
 
-function json(res, code, payload) {
-  res.statusCode = code;
-  res.setHeader("Content-Type", "application/json");
-  res.end(JSON.stringify(payload));
+function bearerFromReq(req) {
+  const auth = String(req?.headers?.authorization || "");
+  return auth.startsWith("Bearer ") ? auth.slice(7) : "";
 }
 
 module.exports = async function handler(req, res) {
-  if (req.method !== "GET") return json(res, 405, { ok: false, error: "method_not_allowed" });
+  if (applyCors(req, res)) return;
 
-  const auth = String(req.headers.authorization || "");
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (req.method !== "GET") {
+    res.setHeader("Allow", "GET, OPTIONS");
+    return json(res, 405, { ok: false, error: "method_not_allowed" });
+  }
 
-  // No session: treat as guest.
+  // Prefer httpOnly cookie session; accept Bearer for backward compatibility.
+  const cookies = parseCookies(req);
+  const token = String(cookies[SESSION_COOKIE] || bearerFromReq(req) || "");
   if (!token) return json(res, 200, { ok: true, verified: false, role: "guest" });
 
   let email = "";
