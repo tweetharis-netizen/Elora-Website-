@@ -1,26 +1,162 @@
-const { json, readJsonBody, requireSessionEmail } = require("../_lib/auth");
-const { setChat } = require("../_lib/chatStore");
+const { kv, assertKvConfigured } = require("../_lib/kv");
+const { sha256 } = require("../_lib/crypto");
+const { verifySessionToken } = require("../_lib/tokens");
+const { isEmailVerified } = require("../_lib/verificationStore");
+
+function json(res, code, payload) {
+  res.statusCode = code;
+  res.setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify(payload));
+}
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = "";
+    req.on("data", (c) => (data += c));
+    req.on("end", () => {
+      try {
+        resolve(data ? JSON.parse(data) : {});
+      } catch (e) {
+        reject(e);
+      }
+    });
+  });
+}
+
+function userHash(email) {
+  return sha256(String(email || "").trim().toLowerCase());
+}
+
+function keyThreadList(email) {
+  return `elora:chat:v1:list:${userHash(email)}`;
+}
+
+function keyThread(email, id) {
+  return `elora:chat:v1:thread:${userHash(email)}:${String(id || "").trim()}`;
+}
+
+function parseAuthEmail(req) {
+  const auth = String(req.headers.authorization || "");
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (!token) return { ok: false, code: 401, error: "missing_session" };
+  try {
+    const { email } = verifySessionToken(token);
+    return { ok: true, email };
+  } catch {
+    return { ok: false, code: 401, error: "invalid_session" };
+  }
+}
+
+async function readList(email) {
+  const raw = await kv.get(keyThreadList(email));
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+async function writeList(email, list) {
+  await kv.set(keyThreadList(email), JSON.stringify(list));
+}
+
+function safeTitle(input) {
+  const t = String(input || "").trim().replace(/\s+/g, " ").slice(0, 60);
+  return t || "New chat";
+}
+
+function sanitizeMessages(messages) {
+  const arr = Array.isArray(messages) ? messages : [];
+  const MAX_MESSAGES = 80;
+
+  const cleaned = arr
+    .slice(-MAX_MESSAGES)
+    .map((m) => ({
+      from: m?.from === "user" ? "user" : "elora",
+      text: String(m?.text || "").slice(0, 8000),
+      ts: typeof m?.ts === "number" ? m.ts : Date.now(),
+    }));
+
+  return cleaned;
+}
 
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") return json(res, 405, { ok: false, error: "method_not_allowed" });
 
-  const email = requireSessionEmail(req, res);
-  if (!email) return;
+  try {
+    assertKvConfigured();
+  } catch (e) {
+    return json(res, 500, { ok: false, error: e?.code === "kv_not_configured" ? "kv_not_configured" : "kv_error" });
+  }
+
+  const auth = parseAuthEmail(req);
+  if (!auth.ok) return json(res, auth.code, { ok: false, error: auth.error });
+
+  try {
+    const verified = await isEmailVerified(auth.email);
+    if (!verified) return json(res, 403, { ok: false, error: "not_verified" });
+  } catch (e) {
+    return json(res, 500, { ok: false, error: e?.code === "kv_not_configured" ? "kv_not_configured" : "verify_check_failed" });
+  }
 
   let body;
   try {
-    body = await readJsonBody(req);
+    body = await readBody(req);
   } catch {
     return json(res, 400, { ok: false, error: "invalid_json" });
   }
 
-  const messages = body?.messages;
+  const id = String(body.id || "").trim();
+  if (!id) return json(res, 400, { ok: false, error: "missing_id" });
 
   try {
-    const saved = await setChat(email, messages);
-    return json(res, 200, { ok: true, count: saved.messages.length, updatedAt: saved.updatedAt });
-  } catch (e) {
-    const code = e?.code === "kv_not_configured" ? "kv_not_configured" : "chat_set_failed";
-    return json(res, 500, { ok: false, error: code });
+    const raw = await kv.get(keyThread(auth.email, id));
+    if (!raw) return json(res, 404, { ok: false, error: "not_found" });
+
+    const current =
+      typeof raw === "string"
+        ? JSON.parse(raw)
+        : raw;
+
+    const now = Date.now();
+    const next = {
+      ...current,
+      title: body.title != null ? safeTitle(body.title) : current.title,
+      studentState: body.studentState && typeof body.studentState === "object" ? body.studentState : current.studentState,
+      updatedAt: now,
+      messages: body.messages != null ? sanitizeMessages(body.messages) : current.messages || [],
+    };
+
+    await kv.set(keyThread(auth.email, id), JSON.stringify(next));
+
+    // Also update metadata list
+    const list = await readList(auth.email);
+    const updatedList = list.map((t) =>
+      t?.id === id
+        ? { ...t, title: next.title, updatedAt: now, studentState: next.studentState }
+        : t
+    );
+    // keep in list even if it somehow didn't exist (recovery)
+    if (!updatedList.some((t) => t?.id === id)) {
+      updatedList.unshift({ id, title: next.title, createdAt: next.createdAt || now, updatedAt: now, studentState: next.studentState });
+    }
+
+    // hard cap threads
+    const MAX_THREADS = 20;
+    const capped = updatedList
+      .sort((a, b) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0))
+      .slice(0, MAX_THREADS);
+
+    await writeList(auth.email, capped);
+
+    return json(res, 200, { ok: true });
+  } catch {
+    return json(res, 500, { ok: false, error: "persist_failed" });
   }
 };
