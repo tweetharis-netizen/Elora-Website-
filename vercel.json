@@ -1,5 +1,15 @@
 {
   "rewrites": [
-    { "source": "/api/send-verification", "destination": "/api/verification/send" }
+    { "source": "/api/verification/send", "destination": "/api/verification?action=send" },
+    { "source": "/api/verification/confirm", "destination": "/api/verification?action=confirm" },
+    { "source": "/api/verification/exchange", "destination": "/api/verification?action=exchange" },
+    { "source": "/api/verification/status", "destination": "/api/verification?action=status" },
+
+    { "source": "/api/teacher/redeem", "destination": "/api/teacher?action=redeem" },
+
+    { "source": "/api/chat/list", "destination": "/api/chat?action=list" },
+    { "source": "/api/chat/create", "destination": "/api/chat?action=create" },
+    { "source": "/api/chat/get", "destination": "/api/chat?action=get" },
+    { "source": "/api/chat/set", "destination": "/api/chat?action=set" }
   ]
 }
