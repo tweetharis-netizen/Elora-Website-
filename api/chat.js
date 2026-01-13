@@ -1,5 +1,7 @@
 // Single chat endpoint to keep function count low.
-// Actions: list | create | get | set
+// Actions: list | create | get | set | attempts
+const MAX_ATTEMPTS_DEFAULT = 3;
+const ATTEMPTS_TTL_SECONDS_DEFAULT = 6 * 60 * 60; // 6 hours
 const jwt = require("jsonwebtoken");
 const { kv } = require("@vercel/kv");
 const crypto = require("crypto");
@@ -97,6 +99,11 @@ function keyIndex(email) {
 function keyThread(id) {
   return `elora:chat:thread:${String(id || "").trim()}`;
 }
+
+function keyAttempts(email, keyHash) {
+  return `elora:attempts:${emailHash(email)}:${String(keyHash || "").trim()}`;
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -213,6 +220,47 @@ module.exports = async function handler(req, res) {
     await writeIndex(email, nextIndex);
 
     return json(res, 200, { ok: true, thread: next });
+  }
+
+  if (action === "attempts") {
+    if (req.method !== "POST") return json(res, 405, { ok: false, error: "method_not_allowed" });
+
+    const op = String(body?.op || "get").trim();
+    const key = String(body?.key || "").trim();
+
+    const maxAttempts = Number.isFinite(body?.maxAttempts) ? Number(body.maxAttempts) : MAX_ATTEMPTS_DEFAULT;
+    const ttlSeconds = Number.isFinite(body?.ttlSeconds) ? Number(body.ttlSeconds) : ATTEMPTS_TTL_SECONDS_DEFAULT;
+
+    if (!/^[a-f0-9]{16,128}$/i.test(key)) return json(res, 400, { ok: false, error: "bad_key" });
+
+    const storageKey = keyAttempts(email, key);
+
+    if (op === "get") {
+      const raw = await kv.get(storageKey);
+      const count = Math.max(0, Math.min(maxAttempts, Number(raw) || 0));
+      return json(res, 200, { ok: true, count, remaining: Math.max(0, maxAttempts - count), maxAttempts });
+    }
+
+    if (op === "use") {
+      const raw = await kv.get(storageKey);
+      const current = Math.max(0, Math.min(maxAttempts, Number(raw) || 0));
+      const next = Math.max(0, Math.min(maxAttempts, current + 1));
+
+      await kv.set(storageKey, String(next));
+      // Best-effort TTL
+      try {
+        if (typeof kv.expire === "function") await kv.expire(storageKey, Math.max(60, ttlSeconds));
+      } catch {}
+
+      return json(res, 200, { ok: true, count: next, remaining: Math.max(0, maxAttempts - next), maxAttempts });
+    }
+
+    if (op === "clear") {
+      await kv.del(storageKey);
+      return json(res, 200, { ok: true, count: 0, remaining: maxAttempts, maxAttempts });
+    }
+
+    return json(res, 400, { ok: false, error: "invalid_op" });
   }
 
   return json(res, 400, { ok: false, error: "invalid_action" });
