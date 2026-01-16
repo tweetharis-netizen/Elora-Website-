@@ -298,8 +298,9 @@ module.exports = async function handler(req, res) {
   if (action === "send") {
     if (req.method !== "POST") return json(res, 405, { ok: false, error: "method_not_allowed" });
 
-    const FRONTEND = String(process.env.ELORA_FRONTEND_URL || "").replace(/\/$/, "");
-    if (!FRONTEND) return json(res, 500, { ok: false, error: "missing_ELORA_FRONTEND_URL" });
+    // IMPORTANT: never rely on request Host for demo links (Vercel preview URLs break sessions).
+    // ELORA_FRONTEND_URL should be set to your canonical demo URL, and we keep a safe fallback.
+    const FRONTEND = String(process.env.ELORA_FRONTEND_URL || "https://elora-verification-ui.vercel.app").replace(/\/$/, "");
 
     const body = await readBody(req);
     const email = normEmail(body.email);
